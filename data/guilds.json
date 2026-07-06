@@ -1,0 +1,171 @@
+{
+  "guilds": {
+    "1424426529995100162": {
+      "channels": {
+        "1491272470978887784": {
+          "timezone": "America/Sao_Paulo",
+          "alert_types": [
+            "MB"
+          ],
+          "alert_minutes": {
+            "PICO": 30,
+            "PRACA": 30,
+            "MB": 5,
+            "WB": 20,
+            "EVENTO": 10
+          },
+          "meta": {
+            "PICO": 5,
+            "PRACA": 5,
+            "MB": 5,
+            "WB": 5,
+            "EVENTO": 5
+          },
+          "role_ping": null,
+          "user_pings": [
+            386916489065922570
+          ],
+          "cleanup_enabled": false,
+          "cleanup_time": null,
+          "cleanup_last_ran": null
+        },
+        "1491821693789016194": {
+          "timezone": "America/Sao_Paulo",
+          "alert_types": [
+            "PICO",
+            "PRACA"
+          ],
+          "alert_minutes": {
+            "PICO": 30,
+            "PRACA": 30,
+            "MB": 15,
+            "WB": 20,
+            "EVENTO": 30
+          },
+          "meta": {
+            "PICO": 100,
+            "PRACA": 100,
+            "MB": 5,
+            "WB": 5,
+            "EVENTO": 5
+          },
+          "role_ping": "1424430358518042889",
+          "user_pings": [],
+          "cleanup_enabled": false,
+          "cleanup_time": null,
+          "cleanup_last_ran": null
+        },
+        "1491824205254234142": {
+          "timezone": "America/Sao_Paulo",
+          "alert_types": [
+            "WB"
+          ],
+          "alert_minutes": {
+            "PICO": 10,
+            "PRACA": 10,
+            "MB": 15,
+            "WB": 20,
+            "EVENTO": 30
+          },
+          "meta": {
+            "PICO": 5,
+            "PRACA": 5,
+            "MB": 5,
+            "WB": 100,
+            "EVENTO": 5
+          },
+          "role_ping": "1424430358518042889"
+        }
+      }
+    },
+    "1298039827555553310": {
+      "channels": {
+        "1491834685343662102": {
+          "timezone": "America/Sao_Paulo",
+          "alert_types": [
+            "MB"
+          ],
+          "alert_minutes": {
+            "PICO": 10,
+            "PRACA": 10,
+            "MB": 5,
+            "WB": 20,
+            "EVENTO": 30
+          },
+          "meta": {
+            "PICO": 5,
+            "PRACA": 5,
+            "MB": 1,
+            "WB": 1,
+            "EVENTO": 5
+          },
+          "role_ping": "1298039827555553310",
+          "user_pings": [],
+          "cleanup_enabled": false,
+          "cleanup_time": null,
+          "cleanup_last_ran": null
+        }
+      },
+      "language": "en"
+    },
+    "1517860807705235596": {
+      "channels": {
+        "1517861074978734141": {
+          "timezone": "Europe/Paris",
+          "alert_types": [
+            "EVENTO"
+          ],
+          "alert_minutes": {
+            "PICO": 10,
+            "PRACA": 10,
+            "MB": 15,
+            "WB": 20,
+            "EVENTO": 10
+          },
+          "meta": {
+            "PICO": 5,
+            "PRACA": 5,
+            "MB": 5,
+            "WB": 5,
+            "EVENTO": 5
+          },
+          "role_ping": null,
+          "user_pings": [],
+          "cleanup_enabled": false,
+          "cleanup_time": null,
+          "cleanup_last_ran": null
+        },
+        "1517885847070965911": {
+          "timezone": "Europe/Paris",
+          "alert_types": [
+            "PICO",
+            "PRACA",
+            "MB",
+            "WB",
+            "EVENTO"
+          ],
+          "alert_minutes": {
+            "PICO": 10,
+            "PRACA": 10,
+            "MB": 15,
+            "WB": 20,
+            "EVENTO": 30
+          },
+          "meta": {
+            "PICO": 5,
+            "PRACA": 5,
+            "MB": 5,
+            "WB": 5,
+            "EVENTO": 5
+          },
+          "role_ping": "1517888527319302144",
+          "user_pings": [],
+          "cleanup_enabled": false,
+          "cleanup_time": null,
+          "cleanup_last_ran": null
+        }
+      },
+      "language": "es"
+    }
+  }
+}

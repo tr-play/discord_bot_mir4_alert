@@ -1,0 +1,115 @@
+{
+  "err_channel_not_registered": "❌ This channel is not registered. Use `/setup_canal` first.",
+  "err_channel_not_registered_short": "❌ Channel not registered. Use `/setup_canal` first.",
+
+  "canal_registered": "✅ Channel {channel} registered for alerts.",
+  "canal_not_found": "❌ Channel {channel} is not registered.",
+  "canal_removed": "✅ Channel {channel} removed from alerts.",
+
+  "timezone_invalid": "❌ Invalid timezone!",
+  "timezone_set": "✅ Timezone: **{timezone}**",
+
+  "types_invalid": "❌ Valid types: PICO PRACA MB WB EVENTO",
+  "types_set": "✅ Types: {types}",
+
+  "alert_minutes_range": "❌ Minutes must be between 1 and 60.",
+  "alert_minutes_set": "✅ {type}: {minutes} minutes",
+
+  "meta_range": "❌ Quantity must be between 1 and 100.",
+  "meta_set": "✅ Goal for **{type}** set: **{quantity}** confirmations",
+
+  "role_set": "✅ Role: {role}",
+  "role_none": "⚠️ No role configured for this channel.",
+  "role_removed": "✅ Mention role removed.",
+
+  "user_already_added": "⚠️ {user} is already in the mention list.",
+  "user_limit": "❌ Limit of 25 users reached. Remove someone with `/remove_usuario` first.",
+  "user_added": "✅ {user} added to this channel's mentions.",
+  "user_not_in_list": "⚠️ {user} is not in the mention list.",
+  "user_removed": "✅ {user} removed from this channel's mentions.",
+
+  "config_title": "⚙️ Channel Settings",
+  "config_field_channel": "📍 Channel",
+  "config_field_timezone": "🕒 Timezone",
+  "config_field_types": "📋 Active Types",
+  "config_field_minutes": "⏰ Minutes Ahead",
+  "config_field_meta": "✅ Confirmation Goal",
+  "config_field_role": "🛎️ Mention Role",
+  "config_field_users": "👤 Mentioned Users",
+  "config_field_silenced": "🔕 No Mention This Week",
+  "config_field_notify": "📢 Notification Status",
+  "config_footer": "Use /meta • /setup_alerta • /add_usuario • /remove_usuario",
+  "config_not_configured": "Not configured",
+  "config_none_configured": "None configured",
+  "config_none_this_week": "None this week",
+  "config_silenced_count": "{count} user(s): ",
+  "config_notify_role": "✅ Role configured — alerts sent normally (goal required to silence)",
+  "config_notify_users": "✅ No role — notifying {count} user(s) not yet confirmed",
+  "config_notify_none": "⛔ No role and no users to mention — alerts **will not be sent**",
+  "config_word_confirmations": "confirmations",
+  "config_word_minutes": "minutes",
+
+  "upcoming_title": "⏭️ Upcoming Bosses",
+  "upcoming_none": "No active bosses at the moment.",
+  "upcoming_now": "🕒 Now: **{time}** | Timezone: `{tz}`",
+  "upcoming_meta_tag": " 🔇 *goal reached*",
+  "upcoming_spawn_value": "⏰ Spawn at **{time}** — in **{time_str}**\n📍 {loc}",
+  "upcoming_time_hours": "{h}h {m}min",
+  "upcoming_time_mins": "{m} min",
+
+  "lista_none": "❌ No active boss of type **{type}** found.",
+  "lista_active": "{count} active boss(es)",
+
+  "silenced_none": "✅ No boss silenced this week.",
+  "silenced_title": "🔇 Bosses Silenced This Week",
+  "silenced_count": "{count} boss(es) with goal reached",
+  "silenced_footer": "Resets every Sunday at 12:00 (São Paulo time)",
+
+  "cleanup_invalid": "❌ Invalid time. Hour: 0-23, Minute: 0-59.",
+  "cleanup_channel_not_registered": "❌ Channel not registered. Use `/setup_canal` first.",
+  "cleanup_channel_not_registered_short": "❌ Channel not registered.",
+  "cleanup_enabled": "✅ Daily cleanup enabled at **{time}** ({tz}).\nAll non-pinned messages will be deleted daily at this time.",
+  "cleanup_disabled": "✅ Daily cleanup disabled.",
+
+  "spawn_not_found": "❌ Boss with ID `{boss_id}` not found.",
+  "spawn_now": "🕒 Now: **{time}** | Timezone: `{tz}`",
+  "spawn_next_label": "⏰ Next Spawn",
+  "spawn_next_value": "**{time}** — in **{time_str}**",
+  "spawn_location": "📍 Location",
+
+  "alarm_range": "❌ Time must be between **1** and **1440** minutes (24h).",
+  "alarm_title": "🚨 Alarm Created",
+  "alarm_desc": "Alarm set for **{minutes} {unit}**.",
+  "alarm_minute": "minute",
+  "alarm_minutes": "minutes",
+  "alarm_field_target": "Target",
+  "alarm_field_fire": "Fires At",
+  "alarm_field_id": "Alarm ID",
+  "alarm_field_message": "Message",
+  "alarm_footer": "Created by {user}",
+
+  "alarms_none": "📭 No pending alarms in this channel.",
+  "alarms_title": "🚨 Pending Alarms",
+  "alarms_count": "{count} alarm(s) in this channel",
+  "alarms_firing_soon": "firing soon...",
+  "alarms_field_target": "**Target:**",
+  "alarms_field_created_by": "**Created by:**",
+  "alarms_field_message": "**Message:**",
+  "alarms_footer": "Use /cancelar_alarme <id> to cancel",
+
+  "alarm_not_found": "❌ Alarm `{id}` not found.",
+  "alarm_cancelled": "✅ Alarm `{id}` cancelled.\n**Target:** {target} | **Created by:** {created_by}",
+
+  "language_set": "✅ Language set: **{language}**",
+
+  "boss_alert_map": "**Map:** {layer} | {word} | {map}",
+  "boss_alert_spawn_label": "⏰ Spawn",
+  "boss_alert_spawn_value": "in **{minutes} minutes** ({time})",
+  "boss_alert_footer": "React with ✅ to confirm | Timezone: {tz}",
+  "boss_meta_title": "🎯 Goal Reached! Boss SILENCED 💪",
+  "boss_meta_desc": "**{boss}** has been silenced!\n{count} player(s) confirmed presence.",
+  "boss_silenced_msg": "🔕 {user} confirmed presence for **{boss}** and will no longer be mentioned for this alert.",
+
+  "alarm_dispatch_title": "🚨 Alarm",
+  "alarm_dispatch_footer": "Alarm created by {user}"
+}
