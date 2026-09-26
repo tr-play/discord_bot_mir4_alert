@@ -13,7 +13,6 @@ from discord.ext import commands
 
 intents = discord.Intents.default()
 intents.message_content = True
-intents.reactions = True        # ← Obrigatório para detectar reações
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -41,6 +40,12 @@ async def on_ready():
         print("✅ Cog 'alerts' carregado com sucesso!")
     except Exception as e:
         print(f"❌ Erro ao carregar 'alerts': {e}")
+
+    try:
+        await bot.load_extension("cogs.account")
+        print("✅ Cog 'account' carregado com sucesso!")
+    except Exception as e:
+        print(f"❌ Erro ao carregar 'account': {e}")
 
     print("-" * 70)
 
