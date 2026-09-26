@@ -103,7 +103,7 @@ class Account(commands.Cog):
 
     @app_commands.command(name="vincular", description="Vincula sua conta do Discord à sua conta do site")
     @app_commands.describe(codigo="Código gerado em mir4.opendataplay.com/settings")
-    @app_commands.allowed_installs(guilds=False, users=True)
+    @app_commands.allowed_installs(guilds=True, users=True)
     @app_commands.allowed_contexts(guilds=False, dms=True, private_channels=False)
     async def vincular(self, interaction: discord.Interaction, codigo: str):
         await interaction.response.defer(ephemeral=True)
