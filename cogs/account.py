@@ -9,6 +9,7 @@ No per-guild language here: a DM has no guild to resolve `/setup_language` again
 these responses are always Portuguese, the same simplification xdoApp's own push-alert
 cron already documents for itself.
 """
+import re
 import time
 
 import discord
@@ -39,7 +40,7 @@ def _rate_limited(discord_id: str) -> bool:
 class SilenceTypeButton(discord.ui.Button):
     def __init__(self, boss_type: str):
         super().__init__(
-            label=f"🔕 Silenciar {boss_type}",
+            label=f"🔕 Silenciar todos os {boss_type}",
             style=discord.ButtonStyle.secondary,
             custom_id=f"boss_alert:silence_type:{boss_type}",
         )
@@ -57,6 +58,51 @@ class SilenceTypeButton(discord.ui.Button):
             f"Reative em `/minhasemana` ou em {SITE_SETTINGS_URL}.",
             ephemeral=True,
         )
+
+
+class MarkDoneButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"boss_alert:done:(?P<boss_id>[a-zA-Z0-9_]+)",
+):
+    """Silences just this one boss (marks it done for the week) -- the DM-button
+    equivalent of the site's per-boss checklist checkbox and of `/feito <boss_id>`.
+    A DynamicItem (not a plain Button) because boss_id varies per instance: the
+    template lets Discord route a click back to this class after a bot restart,
+    reconstructing the instance from the custom_id instead of needing every possible
+    boss_id pre-registered.
+    """
+
+    def __init__(self, boss_id: str, boss_name: str):
+        super().__init__(
+            discord.ui.Button(
+                label=f"✅ Feito: {boss_name}"[:80],
+                style=discord.ButtonStyle.success,
+                custom_id=f"boss_alert:done:{boss_id}",
+            )
+        )
+        self.boss_id = boss_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match, /):
+        return cls(match["boss_id"], match["boss_id"])
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        result = await api_client.set_completion(str(interaction.user.id), self.boss_id, True)
+        if result["status"] == 200:
+            await interaction.followup.send(
+                f"✅ `{self.boss_id}` marcado como feito essa semana -- não recebe mais aviso dele até o reset.",
+                ephemeral=True,
+            )
+            return
+        error = result["body"].get("error")
+        if error == "not_linked":
+            msg = f"Vincule sua conta primeiro com `/vincular` ({SITE_SETTINGS_URL})."
+        elif error == "boss_not_completable":
+            msg = "Só bosses do tipo MB (Mini Boss) têm checklist."
+        else:
+            msg = "❌ Não foi possível marcar esse boss."
+        await interaction.followup.send(msg, ephemeral=True)
 
 
 class ConfirmUnlinkView(discord.ui.View):
@@ -92,11 +138,17 @@ class UnlinkButton(discord.ui.Button):
 
 class BossAlertView(discord.ui.View):
     """Attached to every personal DM alert. `types` is the subset of boss types present
-    in that specific batch -- routing back still works after a bot restart because every
-    possible custom_id is covered by the template instance registered once in setup()."""
+    in that specific batch (drives the "silence this whole type" buttons -- routing back
+    still works after a bot restart because every possible custom_id is covered by the
+    template instance registered once in setup()). `mb_bosses` is the (id, name) pairs
+    of just the MB bosses in the batch (only MB has a per-boss checklist, mirroring the
+    site's own completable-type restriction) -- drives the "mark this one done" buttons,
+    which use MarkDoneButton (a DynamicItem) instead, since boss_id varies per instance."""
 
-    def __init__(self, types: list[str] | None = None):
+    def __init__(self, types: list[str] | None = None, mb_bosses: list[tuple[str, str]] | None = None):
         super().__init__(timeout=None)
+        for boss_id, boss_name in mb_bosses or []:
+            self.add_item(MarkDoneButton(boss_id, boss_name))
         for boss_type in types if types is not None else BOSS_TYPES:
             self.add_item(SilenceTypeButton(boss_type))
         self.add_item(UnlinkButton())
@@ -203,4 +255,5 @@ class Account(commands.Cog):
 
 async def setup(bot: commands.Bot):
     bot.add_view(BossAlertView())  # persistent registration -- covers every possible custom_id
+    bot.add_dynamic_items(MarkDoneButton)  # per-boss buttons: custom_id varies, routed via regex
     await bot.add_cog(Account(bot))

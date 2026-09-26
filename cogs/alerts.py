@@ -148,7 +148,8 @@ class Alerts(commands.Cog):
             tz = ZoneInfo("America/Sao_Paulo")
 
         types_present = sorted({boss["type"] for boss, _, _ in to_notify})
-        view = BossAlertView(types_present)
+        mb_bosses = [(boss["id"], boss["name"]) for boss, _, _ in to_notify if boss["type"] == "MB"]
+        view = BossAlertView(types_present, mb_bosses)
 
         if len(to_notify) == 1:
             boss, spawn_time, minutes_left = to_notify[0]
