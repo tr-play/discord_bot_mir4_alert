@@ -31,6 +31,25 @@ def _bot_headers() -> dict:
     return {"Authorization": f"Bearer {BOT_API_SECRET}"}
 
 
+async def _call(method: str, path: str, **kwargs) -> dict:
+    """Wraps a write call to /api/discord/bot/*: network errors, timeouts, and a
+    non-JSON body (an HTML error page from a proxy/edge during a deploy, a 5xx with no
+    body, etc.) all become a normal {"status", "body"} result instead of an uncaught
+    exception -- a transient site hiccup should surface as a friendly error message to
+    the user, not a dead interaction with a raw traceback in the bot's own log."""
+    try:
+        resp = await _get_client().request(method, path, **kwargs)
+    except httpx.HTTPError as e:
+        print(f"[api_client] {method} {path} falhou (rede): {e}")
+        return {"status": 0, "body": {"error": "network_error"}}
+    try:
+        body = resp.json()
+    except (json.JSONDecodeError, ValueError):
+        print(f"[api_client] {method} {path} devolveu resposta não-JSON (status {resp.status_code})")
+        body = {"error": "bad_response"}
+    return {"status": resp.status_code, "body": body}
+
+
 def _load_bosses_fallback() -> list[dict]:
     try:
         with open(BOSSES_FALLBACK_FILE, "r", encoding="utf-8") as f:
@@ -64,52 +83,49 @@ async def get_boss_schedule(force: bool = False) -> list[dict]:
 
 
 async def claim_code(discord_id: str, discord_username: str, code: str) -> dict:
-    resp = await _get_client().post(
+    return await _call(
+        "POST",
         "/api/discord/bot/claim-code",
         headers=_bot_headers(),
         json={"code": code, "discord_id": discord_id, "discord_username": discord_username},
     )
-    return {"status": resp.status_code, "body": resp.json()}
 
 
 async def unlink(discord_id: str) -> dict:
-    resp = await _get_client().post(
-        "/api/discord/bot/unlink", headers=_bot_headers(), json={"discord_id": discord_id}
+    return await _call(
+        "POST", "/api/discord/bot/unlink", headers=_bot_headers(), json={"discord_id": discord_id}
     )
-    return {"status": resp.status_code, "body": resp.json()}
 
 
 async def get_subscribers() -> list[dict]:
-    resp = await _get_client().get("/api/discord/bot/subscribers", headers=_bot_headers())
-    resp.raise_for_status()
-    return resp.json()
+    result = await _call("GET", "/api/discord/bot/subscribers", headers=_bot_headers())
+    return result["body"] if result["status"] == 200 and isinstance(result["body"], list) else []
 
 
 async def claim_notification(discord_id: str, boss_id: str, spawn_time_iso: str) -> bool:
-    resp = await _get_client().post(
+    result = await _call(
+        "POST",
         "/api/discord/bot/claim-notification",
         headers=_bot_headers(),
         json={"discord_id": discord_id, "boss_id": boss_id, "spawn_time": spawn_time_iso},
     )
-    resp.raise_for_status()
-    return bool(resp.json().get("claimed"))
+    return result["status"] == 200 and bool(result["body"].get("claimed"))
 
 
 async def set_completion(discord_id: str, boss_id: str, done: bool) -> dict:
     method = "POST" if done else "DELETE"
-    resp = await _get_client().request(
+    return await _call(
         method,
         "/api/discord/bot/completions",
         headers=_bot_headers(),
         json={"discord_id": discord_id, "boss_id": boss_id},
     )
-    return {"status": resp.status_code, "body": resp.json()}
 
 
 async def set_notify_type(discord_id: str, boss_type: str, enabled: bool) -> dict:
-    resp = await _get_client().patch(
+    return await _call(
+        "PATCH",
         "/api/discord/bot/notify-type",
         headers=_bot_headers(),
         json={"discord_id": discord_id, "type": boss_type, "enabled": enabled},
     )
-    return {"status": resp.status_code, "body": resp.json()}
