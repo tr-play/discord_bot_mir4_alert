@@ -46,9 +46,13 @@ class SilenceTypeButton(discord.ui.Button):
         self.boss_type = boss_type
 
     async def callback(self, interaction: discord.Interaction):
+        # Ack within Discord's ~3s window before the (network) API call, not after --
+        # otherwise a slow response from the site times out the interaction even though
+        # the action itself went through.
+        await interaction.response.defer(ephemeral=True)
         discord_id = str(interaction.user.id)
         await api_client.set_notify_type(discord_id, self.boss_type, False)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"🔕 Você não vai mais receber avisos de **{self.boss_type}**. "
             f"Reative em `/minhasemana` ou em {SITE_SETTINGS_URL}.",
             ephemeral=True,
@@ -61,8 +65,9 @@ class ConfirmUnlinkView(discord.ui.View):
 
     @discord.ui.button(label="Confirmar", style=discord.ButtonStyle.danger, custom_id="boss_alert:unlink_confirm")
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         await api_client.unlink(str(interaction.user.id))
-        await interaction.response.edit_message(content="✅ Conta desvinculada.", view=None)
+        await interaction.edit_original_response(content="✅ Conta desvinculada.", view=None)
 
     @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary, custom_id="boss_alert:unlink_cancel")
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
