@@ -1,3 +1,12 @@
+# Live runtime state (per-deployment, not source code) -- data/bosses.json is the only
+# intentionally version-controlled file under data/, everything else here is written at
+# runtime by the running bot and must never be clobbered by a git pull/checkout.
+data/guilds.json
+data/alerts/
+data/completed/
+data/silenced_users/
+data/scheduled_alarms/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
