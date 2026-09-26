@@ -95,6 +95,7 @@ class Commands(commands.Cog):
     # ====================== SETUP CANAL ======================
     @app_commands.command(name="setup_canal", description="Registra um canal para receber avisos de boss")
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     async def setup_canal(self, interaction: discord.Interaction, canal: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
@@ -125,6 +126,7 @@ class Commands(commands.Cog):
     # ====================== REMOVE CANAL ======================
     @app_commands.command(name="remove_canal", description="Remove um canal registrado")
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     async def remove_canal(self, interaction: discord.Interaction, canal: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
@@ -153,6 +155,7 @@ class Commands(commands.Cog):
     # ====================== SETUP TIMEZONE ======================
     @app_commands.command(name="setup_timezone", description="Define o fuso horário de exibição do canal atual")
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     @app_commands.choices(timezone=[
         app_commands.Choice(name="SA - Brasil (Padrão)", value="SA"),
         app_commands.Choice(name="NA - América do Norte", value="NA"),
@@ -191,6 +194,7 @@ class Commands(commands.Cog):
     # ====================== SETUP LANGUAGE ======================
     @app_commands.command(name="setup_language", description="Define o idioma do bot para este servidor")
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     @app_commands.choices(language=[
         app_commands.Choice(name="Português (PT-BR)", value="pt"),
         app_commands.Choice(name="English (EN)", value="en"),
@@ -384,6 +388,7 @@ class Commands(commands.Cog):
     @app_commands.command(name="setup_limpeza", description="Ativa limpeza diária automática deste canal no horário definido")
     @app_commands.describe(hora="Hora do cleanup (0-23)", minuto="Minuto do cleanup (0-59)")
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     async def setup_limpeza(self, interaction: discord.Interaction, hora: int, minuto: int):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
@@ -414,6 +419,7 @@ class Commands(commands.Cog):
     # ====================== DESATIVAR LIMPEZA ======================
     @app_commands.command(name="desativar_limpeza", description="Desativa a limpeza diária automática deste canal")
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     async def desativar_limpeza(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
@@ -498,6 +504,7 @@ class Commands(commands.Cog):
         mensagem="Mensagem opcional do alarme"
     )
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     async def alarme(self, interaction: discord.Interaction, minutos: int, alvo: Union[discord.Member, discord.Role], mensagem: str):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
@@ -558,6 +565,7 @@ class Commands(commands.Cog):
     # ====================== LISTAR ALARMES ======================
     @app_commands.command(name="listar_alarmes", description="Lista todos os alarmes pendentes neste canal")
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     async def listar_alarmes(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
@@ -620,6 +628,7 @@ class Commands(commands.Cog):
     @app_commands.command(name="cancelar_alarme", description="Cancela um alarme pendente pelo ID")
     @app_commands.describe(alarm_id="ID do alarme (ex: alarm_3f7a1b2c)")
     @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     async def cancelar_alarme(self, interaction: discord.Interaction, alarm_id: str):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
