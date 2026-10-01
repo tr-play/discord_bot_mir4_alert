@@ -13,6 +13,8 @@ from spawn_calc import upcoming_all
 from cogs.account import BossAlertView
 
 GUILDS_FILE = "data/guilds.json"
+PENDING_DM_DELETES_FILE = "data/pending_dm_deletes.json"
+DM_TTL_MINUTES = 60  # how long a boss-alert DM stays before auto-deleting
 
 COLORS = {
     "PICO": 0xD85A30,
@@ -64,14 +66,20 @@ class Alerts(commands.Cog):
             gid = os.path.basename(path).removesuffix(".json")
             self.scheduled_alarms[gid] = load_json(path)
 
+        # Boss-alert DMs pending auto-delete -- persisted so a bot restart mid-TTL
+        # doesn't leave them stuck forever (same reaper shape as scheduled_alarms).
+        self.pending_dm_deletes = load_json(PENDING_DM_DELETES_FILE).get("items", [])
+
         self.check_bosses.start()
         self.check_cleanup.start()
         self.check_scheduled_alarms.start()
+        self.check_dm_expiry.start()
 
     def cog_unload(self):
         self.check_bosses.cancel()
         self.check_cleanup.cancel()
         self.check_scheduled_alarms.cancel()
+        self.check_dm_expiry.cancel()
 
     # ====================== ALERTAS PESSOAIS POR DM ======================
     # Mirrors src/app/api/cron/send-push/route.ts's filtering (personal lead time, personal
@@ -178,7 +186,8 @@ class Alerts(commands.Cog):
             )
 
         try:
-            await user.send(embed=embed, view=view)
+            msg = await user.send(embed=embed, view=view)
+            self._schedule_dm_delete(sub["discord_id"], msg.id)
         except discord.Forbidden:
             # DMs closed/bot blocked -- skip only this send. The dedupe row for this spawn is
             # already committed (claim_notification ran before we got here), so this exact
@@ -187,6 +196,58 @@ class Alerts(commands.Cog):
             print(f"[check_bosses] DM bloqueada por {discord_id}, pulando.")
         except discord.HTTPException as e:
             print(f"[check_bosses] Erro enviando DM pra {discord_id}: {e}")
+
+    def _schedule_dm_delete(self, discord_id, message_id):
+        delete_at = (datetime.now(timezone.utc) + timedelta(minutes=DM_TTL_MINUTES)).isoformat()
+        self.pending_dm_deletes.append({
+            "discord_id": str(discord_id),
+            "message_id": message_id,
+            "delete_at": delete_at,
+        })
+        save_json(PENDING_DM_DELETES_FILE, {"items": self.pending_dm_deletes})
+
+    @tasks.loop(minutes=1)
+    async def check_dm_expiry(self):
+        if not self.pending_dm_deletes:
+            return
+        now = datetime.now(timezone.utc)
+        remaining = []
+        changed = False
+        for item in self.pending_dm_deletes:
+            try:
+                fire_at = datetime.fromisoformat(item["delete_at"])
+            except (KeyError, ValueError):
+                changed = True
+                continue
+            if now < fire_at:
+                remaining.append(item)
+                continue
+            changed = True
+            await self._delete_dm(item)
+
+        if changed:
+            self.pending_dm_deletes = remaining
+            save_json(PENDING_DM_DELETES_FILE, {"items": self.pending_dm_deletes})
+
+    @check_dm_expiry.before_loop
+    async def before_dm_expiry(self):
+        await self.bot.wait_until_ready()
+
+    async def _delete_dm(self, item):
+        try:
+            discord_id = int(item["discord_id"])
+        except (TypeError, ValueError, KeyError):
+            return
+        try:
+            user = await self.bot.fetch_user(discord_id)
+            dm_channel = await user.create_dm()
+            await dm_channel.get_partial_message(item["message_id"]).delete()
+        except discord.NotFound:
+            pass  # already gone (user deleted it, or DM closed) -- nothing to do
+        except discord.Forbidden:
+            pass  # can't delete our own DM -- shouldn't normally happen, not worth retrying
+        except discord.HTTPException as e:
+            print(f"[check_dm_expiry] Erro apagando DM {item.get('message_id')}: {e}")
 
     # ====================== LIMPEZA DIÁRIA ======================
     # Unrelated to boss alerts -- untouched by this rework.
