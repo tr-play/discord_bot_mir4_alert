@@ -24,6 +24,11 @@ COLORS = {
     "EVENTO": 0xFFD700,
 }
 
+# Generic site notifications (/api/discord/bot/notifications/claim) -- by kind
+SITE_NOTIF_EMOJIS = {"test": "🔔", "watch": "⭐", "rank": "📈", "badge": "🏅", "reminder": "⏰"}
+SITE_NOTIF_COLOR = 0x60A5FA
+MAX_EMBEDS_PER_MESSAGE = 10  # Discord's hard limit
+
 EMOJIS = {
     "PICO": "🔶",
     "PRACA": "🟦",
@@ -74,12 +79,14 @@ class Alerts(commands.Cog):
         self.check_cleanup.start()
         self.check_scheduled_alarms.start()
         self.check_dm_expiry.start()
+        self.check_site_notifications.start()
 
     def cog_unload(self):
         self.check_bosses.cancel()
         self.check_cleanup.cancel()
         self.check_scheduled_alarms.cancel()
         self.check_dm_expiry.cancel()
+        self.check_site_notifications.cancel()
 
     # ====================== ALERTAS PESSOAIS POR DM ======================
     # Mirrors src/app/api/cron/send-push/route.ts's filtering (personal lead time, personal
@@ -248,6 +255,72 @@ class Alerts(commands.Cog):
             pass  # can't delete our own DM -- shouldn't normally happen, not worth retrying
         except discord.HTTPException as e:
             print(f"[check_dm_expiry] Erro apagando DM {item.get('message_id')}: {e}")
+
+    # ====================== NOTIFICAÇÕES GENÉRICAS DO SITE ======================
+    # Watchlist/ranking/badge/etc. events created on the site (user_notifications table).
+    # The site renders the text and claims each row atomically when we fetch it, so there's
+    # no dedupe to do here -- just DM whatever comes back. Unlike boss alerts these are not
+    # time-boxed, so they're NOT scheduled for auto-delete.
+    @tasks.loop(minutes=1)
+    async def check_site_notifications(self):
+        try:
+            notifications = await api_client.claim_site_notifications()
+        except Exception as e:
+            print(f"[check_site_notifications] Falha ao buscar notificações: {e}")
+            return
+        if not notifications:
+            return
+
+        by_user: dict[str, list[dict]] = {}
+        for n in notifications:
+            by_user.setdefault(str(n.get("discord_id")), []).append(n)
+
+        for discord_id, items in by_user.items():
+            try:
+                await self._send_site_notifications(discord_id, items)
+            except Exception as e:
+                print(f"[check_site_notifications] Erro enviando pra {discord_id}: {e}")
+            await asyncio.sleep(1)  # same pacing as the boss DMs
+
+    @check_site_notifications.before_loop
+    async def before_site_notifications(self):
+        await self.bot.wait_until_ready()
+
+    async def _send_site_notifications(self, discord_id: str, items: list[dict]):
+        try:
+            user = await self.bot.fetch_user(int(discord_id))
+        except (TypeError, ValueError):
+            return
+        except discord.NotFound:
+            await api_client.unlink(discord_id)
+            print(f"[check_site_notifications] Discord {discord_id} não existe mais, desvinculado.")
+            return
+        except discord.HTTPException as e:
+            print(f"[check_site_notifications] Erro buscando usuário {discord_id}: {e}")
+            return
+
+        embeds = []
+        for n in items:
+            embed = discord.Embed(
+                title=f"{SITE_NOTIF_EMOJIS.get(n.get('kind'), '🔔')} {n.get('title', '')}"[:256],
+                description=(n.get("body") or "")[:4096] or None,
+                color=SITE_NOTIF_COLOR,
+                url=n.get("url") or None,
+            )
+            embed.set_footer(text="Open MIR4")
+            embeds.append(embed)
+
+        for i in range(0, len(embeds), MAX_EMBEDS_PER_MESSAGE):
+            try:
+                await user.send(embeds=embeds[i:i + MAX_EMBEDS_PER_MESSAGE])
+            except discord.Forbidden:
+                # DMs closed -- already claimed on the site, so these are dropped; the bell
+                # on the site still has them
+                print(f"[check_site_notifications] DM bloqueada por {discord_id}, pulando.")
+                return
+            except discord.HTTPException as e:
+                print(f"[check_site_notifications] Erro enviando DM pra {discord_id}: {e}")
+                return
 
     # ====================== LIMPEZA DIÁRIA ======================
     # Unrelated to boss alerts -- untouched by this rework.

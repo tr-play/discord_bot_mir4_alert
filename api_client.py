@@ -129,3 +129,11 @@ async def set_notify_type(discord_id: str, boss_type: str, enabled: bool) -> dic
         headers=_bot_headers(),
         json={"discord_id": discord_id, "type": boss_type, "enabled": enabled},
     )
+
+
+async def claim_site_notifications() -> list[dict]:
+    """Generic site notifications (watchlist, ranking, badges...) waiting for a Discord DM.
+    The site claims them atomically on this call, so whatever comes back is ours to send
+    exactly once -- already rendered (title/body in PT), each with the target discord_id."""
+    result = await _call("POST", "/api/discord/bot/notifications/claim", headers=_bot_headers())
+    return result["body"] if result["status"] == 200 and isinstance(result["body"], list) else []
