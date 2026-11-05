@@ -195,6 +195,17 @@ class Account(commands.Cog):
                 ephemeral=True,
             )
 
+    vincular.description_localizations = {
+        "en-US": "Links your Discord account to your site account",
+        "en-GB": "Links your Discord account to your site account",
+        "es-ES": "Vincula tu cuenta de Discord a tu cuenta del sitio",
+    }
+    vincular.name_localizations = {
+        "en-US": "link",
+        "en-GB": "link",
+        "es-ES": "vincular",
+    }
+
     @app_commands.command(name="vincular_canal", description="Vincula este canal à sua conta do site pra configurar alertas automáticos de boss")
     @app_commands.describe(codigo=f"Código gerado em {SITE_BOSS_ALERT_URL}")
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -242,11 +253,33 @@ class Account(commands.Cog):
             except Exception as e:
                 print(f"[vincular_canal] Falha ao sincronizar guild {interaction.guild_id}: {e}")
 
+    vincular_canal.description_localizations = {
+        "en-US": "Links this channel to your site account to configure automatic boss alerts",
+        "en-GB": "Links this channel to your site account to configure automatic boss alerts",
+        "es-ES": "Vincula este canal a tu cuenta del sitio para configurar alertas automáticas de boss",
+    }
+    vincular_canal.name_localizations = {
+        "en-US": "link_channel",
+        "en-GB": "link_channel",
+        "es-ES": "vincular_canal",
+    }
+
     @app_commands.command(name="desvincular", description="Desvincula sua conta do Discord da conta do site")
     async def desvincular(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         await api_client.unlink(str(interaction.user.id))
         await interaction.followup.send("✅ Conta desvinculada. Você não vai mais receber alertas por DM.", ephemeral=True)
+
+    desvincular.description_localizations = {
+        "en-US": "Unlinks your Discord account from your site account",
+        "en-GB": "Unlinks your Discord account from your site account",
+        "es-ES": "Desvincula tu cuenta de Discord de tu cuenta del sitio",
+    }
+    desvincular.name_localizations = {
+        "en-US": "unlink",
+        "en-GB": "unlink",
+        "es-ES": "desvincular",
+    }
 
     @app_commands.command(name="feito", description="Marca um mini boss (MB) como feito essa semana")
     @app_commands.describe(boss_id="ID do boss (ex: wb_007)")
@@ -263,6 +296,17 @@ class Account(commands.Cog):
         else:
             await interaction.followup.send("❌ Não foi possível marcar esse boss.", ephemeral=True)
 
+    feito.description_localizations = {
+        "en-US": "Marks a mini boss (MB) as done this week",
+        "en-GB": "Marks a mini boss (MB) as done this week",
+        "es-ES": "Marca un mini boss (MB) como hecho esta semana",
+    }
+    feito.name_localizations = {
+        "en-US": "done",
+        "en-GB": "done",
+        "es-ES": "hecho",
+    }
+
     @app_commands.command(name="pendente", description="Desmarca um mini boss (MB) como feito essa semana")
     @app_commands.describe(boss_id="ID do boss (ex: wb_007)")
     async def pendente(self, interaction: discord.Interaction, boss_id: str):
@@ -272,6 +316,17 @@ class Account(commands.Cog):
             await interaction.followup.send(f"↩️ `{boss_id}` voltou a ficar pendente.", ephemeral=True)
         else:
             await interaction.followup.send("❌ Não foi possível atualizar esse boss.", ephemeral=True)
+
+    pendente.description_localizations = {
+        "en-US": "Unmarks a mini boss (MB) as done this week",
+        "en-GB": "Unmarks a mini boss (MB) as done this week",
+        "es-ES": "Desmarca un mini boss (MB) como hecho esta semana",
+    }
+    pendente.name_localizations = {
+        "en-US": "pending",
+        "en-GB": "pending",
+        "es-ES": "pendiente",
+    }
 
     @app_commands.command(name="minhasemana", description="Mostra seu vínculo, checklist e preferências pessoais")
     async def minhasemana(self, interaction: discord.Interaction):
@@ -300,6 +355,17 @@ class Account(commands.Cog):
         )
         embed.set_footer(text=f"Edite tudo isso em {SITE_SETTINGS_URL}")
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    minhasemana.description_localizations = {
+        "en-US": "Shows your link status, checklist and personal preferences",
+        "en-GB": "Shows your link status, checklist and personal preferences",
+        "es-ES": "Muestra tu vínculo, checklist y preferencias personales",
+    }
+    minhasemana.name_localizations = {
+        "en-US": "my_week",
+        "en-GB": "my_week",
+        "es-ES": "mi_semana",
+    }
 
 
 async def setup(bot: commands.Bot):
