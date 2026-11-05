@@ -23,10 +23,13 @@ async def sync_guild_roles(guild: discord.Guild):
 
 async def sync_linked_members(guild: discord.Guild):
     """One REST call (guild.fetch_members) per guild -- the intersection with a linked
-    site account happens server-side, not here, so this never needs to know who's linked."""
+    site account happens server-side, not here, so this never needs to know who's linked.
+    Requires the privileged Members intent; until that's enabled in the Discord Developer
+    Portal (and intents.members = True in bot.py), this raises discord.ClientException on
+    every call -- caught here so it doesn't block role/permission sync for the guild."""
     try:
         members = [m async for m in guild.fetch_members(limit=None)]
-    except discord.HTTPException as e:
+    except (discord.HTTPException, discord.ClientException) as e:
         print(f"[guild_sync] fetch_members falhou em {guild.id}: {e}")
         return
     payload = [{"discord_id": str(m.id), "username": m.name} for m in members if not m.bot]
