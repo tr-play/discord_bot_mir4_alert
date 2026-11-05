@@ -1,8 +1,7 @@
 import asyncio
-import glob
 import json
 import os
-from datetime import datetime, timedelta, time as dt_time, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import discord
@@ -11,10 +10,16 @@ from discord.ext import commands, tasks
 import api_client
 from spawn_calc import upcoming_all
 from cogs.account import BossAlertView
+from i18n import get_boss_name
+from guild_sync import sync_guild
 
-GUILDS_FILE = "data/guilds.json"
 PENDING_DM_DELETES_FILE = "data/pending_dm_deletes.json"
 DM_TTL_MINUTES = 60  # how long a boss-alert DM stays before auto-deleting
+
+# Mapa Boss (MB) is excluded from channel alerts on purpose -- it respawns too often for a
+# channel-wide mention and would spam the configured role/@everyone every few minutes.
+# It's unaffected here: personal DMs below still cover every type including MB.
+CHANNEL_ALERT_TYPES = {"PICO", "PRACA", "WB", "EVENTO"}
 
 COLORS = {
     "PICO": 0xD85A30,
@@ -56,23 +61,36 @@ def save_json(file_path, data):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def scheduled_alarms_file(guild_id):
-    return f"data/scheduled_alarms/{guild_id}.json"
+def alert_marks(lead_minutes: int, repeat_minutes: int | None) -> list[int]:
+    """[lead_minutes] alone for a single alert, or [lead_minutes, lead_minutes - repeat,
+    lead_minutes - 2*repeat, ...] (stopping before 0) when repetition is on."""
+    marks = [lead_minutes]
+    if repeat_minutes:
+        m = lead_minutes - repeat_minutes
+        while m > 0:
+            marks.append(m)
+            m -= repeat_minutes
+    return marks
+
+
+def mention_text(cfg: dict) -> str | None:
+    mention_type = cfg.get("mentionType")
+    target = cfg.get("mentionTargetId")
+    if mention_type == "everyone":
+        return "@everyone"
+    if mention_type == "role" and target:
+        return f"<@&{target}>"
+    if mention_type == "user" and target:
+        return f"<@{target}>"
+    return None
 
 
 class Alerts(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-        # Freeform /alarme reminders -- unrelated to boss alerts, untouched by the
-        # personal-DM rework below.
-        self.scheduled_alarms = {}
-        for path in glob.glob("data/scheduled_alarms/*.json"):
-            gid = os.path.basename(path).removesuffix(".json")
-            self.scheduled_alarms[gid] = load_json(path)
-
         # Boss-alert DMs pending auto-delete -- persisted so a bot restart mid-TTL
-        # doesn't leave them stuck forever (same reaper shape as scheduled_alarms).
+        # doesn't leave them stuck forever (same reaper shape as before).
         self.pending_dm_deletes = load_json(PENDING_DM_DELETES_FILE).get("items", [])
 
         self.check_bosses.start()
@@ -80,6 +98,7 @@ class Alerts(commands.Cog):
         self.check_scheduled_alarms.start()
         self.check_dm_expiry.start()
         self.check_site_notifications.start()
+        self.check_guild_sync.start()
 
     def cog_unload(self):
         self.check_bosses.cancel()
@@ -87,8 +106,9 @@ class Alerts(commands.Cog):
         self.check_scheduled_alarms.cancel()
         self.check_dm_expiry.cancel()
         self.check_site_notifications.cancel()
+        self.check_guild_sync.cancel()
 
-    # ====================== ALERTAS PESSOAIS POR DM ======================
+    # ====================== ALERTAS PESSOAIS POR DM + ALERTAS DE CANAL ======================
     # Mirrors src/app/api/cron/send-push/route.ts's filtering (personal lead time, personal
     # enabled types, personal completion state, dedupe log) but delivers by Discord DM
     # instead of Web Push, and reaches boss/user data through api_client.py instead of a
@@ -105,13 +125,18 @@ class Alerts(commands.Cog):
             subscribers = await api_client.get_subscribers()
         except Exception as e:
             print(f"[check_bosses] Falha ao buscar assinantes: {e}")
-            return
+            subscribers = []
 
         for sub in subscribers:
             try:
                 await self._process_subscriber(sub, upcoming, now)
             except Exception as e:
                 print(f"[check_bosses] Erro processando {sub.get('discord_id')}: {e}")
+
+        try:
+            await self._process_channel_alerts(upcoming, now)
+        except Exception as e:
+            print(f"[check_bosses] Erro processando alertas de canal: {e}")
 
     @check_bosses.before_loop
     async def before_check_bosses(self):
@@ -256,6 +281,133 @@ class Alerts(commands.Cog):
         except discord.HTTPException as e:
             print(f"[check_dm_expiry] Erro apagando DM {item.get('message_id')}: {e}")
 
+    # ====================== ALERTAS AUTOMÁTICOS POR CANAL ======================
+    # New feature: unlike personal DMs (lead-time window + exact dedupe per spawn), a
+    # channel alert can legitimately fire more than once for the same spawn (the repeat
+    # feature) -- so the dedupe key includes *which* threshold ("mark") was hit, not just
+    # the spawn itself. claim_channel_alert() atomically claims one (channel, boss_type,
+    # spawn_time, mark) so the same mark never fires twice even though the check below is
+    # a window (minutes_left <= mark), not exact-minute equality.
+    async def _process_channel_alerts(self, upcoming, now):
+        try:
+            channel_alerts = await api_client.get_channel_alerts()
+        except Exception as e:
+            print(f"[check_bosses] Falha ao buscar alertas de canal: {e}")
+            return
+        if not channel_alerts:
+            return
+
+        by_channel: dict[tuple[str, str], list[dict]] = {}
+        for cfg in channel_alerts:
+            by_channel.setdefault((cfg["guildId"], cfg["channelId"]), []).append(cfg)
+
+        for (guild_id, channel_id), configs in by_channel.items():
+            try:
+                await self._process_channel(guild_id, channel_id, configs, upcoming, now)
+            except Exception as e:
+                print(f"[check_bosses] Erro no canal {channel_id} ({guild_id}): {e}")
+
+    async def _process_channel(self, guild_id, channel_id, configs, upcoming, now):
+        channel = self.bot.get_channel(int(channel_id))
+        if channel is None:
+            await api_client.report_channel_health(guild_id, channel_id, success=False)
+            return
+
+        to_send = []  # (cfg, tied_bosses, spawn_time, minutes_left)
+        for cfg in configs:
+            boss_type = cfg["bossType"]
+            same_type = [(b, s) for b, s in upcoming if b["type"] == boss_type]
+            if not same_type:
+                continue
+            # `upcoming` is sorted ascending by spawn_time -- the first match is also the
+            # earliest, and every boss of this type sharing that exact timestamp is the
+            # "tied group" the site's own "Próximo Spawn" card already shows together.
+            spawn_time = same_type[0][1]
+            tied = [b for b, s in same_type if s == spawn_time]
+            minutes_left = (spawn_time - now).total_seconds() / 60
+            if minutes_left <= 0:
+                continue
+
+            marks = alert_marks(cfg["leadMinutes"], cfg.get("repeatMinutes"))
+            due_marks = [m for m in marks if minutes_left <= m]
+            if not due_marks:
+                continue
+
+            # Only the most urgent due mark actually sends; any smaller overdue mark (the
+            # bot was down and missed a repeat tick) is claimed silently too, so it can't
+            # fire a burst of catch-up messages on a later tick.
+            fire_mark = max(due_marks)
+            fired = await api_client.claim_channel_alert(guild_id, channel_id, boss_type, spawn_time.isoformat(), fire_mark)
+            for m in due_marks:
+                if m != fire_mark:
+                    await api_client.claim_channel_alert(guild_id, channel_id, boss_type, spawn_time.isoformat(), m)
+            if not fired:
+                continue  # this mark was already notified on an earlier tick
+
+            to_send.append((cfg, tied, spawn_time, minutes_left))
+
+        if to_send:
+            await self._send_channel_alert(channel, guild_id, channel_id, to_send)
+
+    async def _send_channel_alert(self, channel, guild_id, channel_id, to_send):
+        tz_name = to_send[0][0].get("timezone") or "America/Sao_Paulo"
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = ZoneInfo("America/Sao_Paulo")
+
+        # One mention per distinct (type, target) across the whole batch -- two boss types
+        # both set to @everyone must not ping the channel twice in the same message.
+        mentions = []
+        seen = set()
+        for cfg, *_ in to_send:
+            key = (cfg.get("mentionType"), cfg.get("mentionTargetId"))
+            text = mention_text(cfg)
+            if text and key not in seen:
+                seen.add(key)
+                mentions.append(text)
+
+        embeds = []
+        for cfg, tied, spawn_time, minutes_left in sorted(to_send, key=lambda x: x[3]):
+            boss_type = cfg["bossType"]
+            lines = []
+            for boss in tied[:20]:  # guard against an unreasonably large tied group blowing past embed limits
+                loc = " · ".join(filter(None, [boss.get("layer"), boss.get("word"), boss.get("map")]))
+                name = get_boss_name(boss, guild_id)
+                lines.append(f"**{name}** — {loc}" if loc else f"**{name}**")
+            title = f"{EMOJIS.get(boss_type, '🔴')} {boss_type} — respawna em {int(minutes_left)} min"
+            if len(tied) > 1:
+                title += f" · {len(tied)} juntos"
+            embed = discord.Embed(title=title, description="\n".join(lines), color=COLORS.get(boss_type, 0x555555))
+            embed.add_field(
+                name="Horário do respawn",
+                value=f"{spawn_time.astimezone(tz).strftime('%H:%M')} ({tz_name})",
+                inline=False,
+            )
+            embeds.append(embed)
+
+        content = " ".join(mentions) if mentions else None
+        allowed_mentions = discord.AllowedMentions(everyone=True, roles=True, users=True)
+
+        success = True
+        for i in range(0, len(embeds), MAX_EMBEDS_PER_MESSAGE):
+            try:
+                await channel.send(
+                    content=content if i == 0 else None,
+                    embeds=embeds[i:i + MAX_EMBEDS_PER_MESSAGE],
+                    allowed_mentions=allowed_mentions,
+                )
+            except (discord.Forbidden, discord.NotFound):
+                success = False
+                print(f"[check_bosses] Sem acesso ao canal {channel_id} ({guild_id}) pra postar alerta.")
+                break
+            except discord.HTTPException as e:
+                success = False
+                print(f"[check_bosses] Erro postando alerta de canal em {channel_id}: {e}")
+                break
+
+        await api_client.report_channel_health(guild_id, channel_id, success=success)
+
     # ====================== NOTIFICAÇÕES GENÉRICAS DO SITE ======================
     # Watchlist/ranking/badge/etc. events created on the site (user_notifications table).
     # The site renders the text and claims each row atomically when we fetch it, so there's
@@ -323,39 +475,32 @@ class Alerts(commands.Cog):
                 return
 
     # ====================== LIMPEZA DIÁRIA ======================
-    # Unrelated to boss alerts -- untouched by this rework.
+    # Unrelated to boss alerts -- untouched by this rework other than the storage swap.
     @tasks.loop(minutes=1)
     async def check_cleanup(self):
-        data = load_json(GUILDS_FILE)
-        channels_to_clean = []
+        try:
+            channels = await api_client.get_all_channels()
+        except Exception as e:
+            print(f"[check_cleanup] Falha ao buscar canais: {e}")
+            return
 
-        for guild_id, guild_data in data.get("guilds", {}).items():
-            for channel_id, cfg in guild_data.get("channels", {}).items():
-                cfg.setdefault("cleanup_enabled", False)
-                cfg.setdefault("cleanup_time", None)
-                cfg.setdefault("cleanup_last_ran", None)
+        for ch in channels:
+            if not ch.get("cleanup_enabled") or not ch.get("cleanup_time"):
+                continue
 
-                if not cfg["cleanup_enabled"] or not cfg["cleanup_time"]:
-                    continue
+            tz = ZoneInfo(ch.get("timezone") or "America/Sao_Paulo")
+            local_now = datetime.now(tz)
+            local_date = local_now.strftime("%Y-%m-%d")
+            local_time = local_now.strftime("%H:%M")
 
-                tz = ZoneInfo(cfg.get("timezone", "America/Sao_Paulo"))
-                local_now = datetime.now(tz)
-                local_date = local_now.strftime("%Y-%m-%d")
-                local_time = local_now.strftime("%H:%M")
+            if local_time != ch["cleanup_time"]:
+                continue
+            if ch.get("cleanup_last_ran") == local_date:
+                continue  # já rodou hoje
 
-                if local_time != cfg["cleanup_time"]:
-                    continue
-                if cfg["cleanup_last_ran"] == local_date:
-                    continue  # já rodou hoje
+            await api_client.update_channel(ch["guild_id"], ch["channel_id"], cleanup_last_ran=local_date)
 
-                cfg["cleanup_last_ran"] = local_date
-                channels_to_clean.append(int(channel_id))
-
-        if channels_to_clean:
-            save_json(GUILDS_FILE, data)
-
-        for channel_id in channels_to_clean:
-            channel = self.bot.get_channel(channel_id)
+            channel = self.bot.get_channel(int(ch["channel_id"]))
             if channel is None:
                 continue
             try:
@@ -371,53 +516,49 @@ class Alerts(commands.Cog):
         await self.bot.wait_until_ready()
 
     # ====================== ALARMES AGENDADOS ======================
-    # Unrelated to boss alerts -- untouched by this rework.
+    # Unrelated to boss alerts -- untouched by this rework other than the storage swap.
+    # get_due_alarms() claims (deletes) due alarms atomically server-side, so there's no
+    # local state to track between ticks any more.
     @tasks.loop(minutes=1)
     async def check_scheduled_alarms(self):
-        now = datetime.now(timezone.utc)
-        changed_guilds = set()
+        try:
+            alarms = await api_client.get_due_alarms()
+        except Exception as e:
+            print(f"[check_scheduled_alarms] Falha ao buscar alarmes vencidos: {e}")
+            return
 
-        for guild_id, alarms in list(self.scheduled_alarms.items()):
-            to_remove = []
-            for alarm_id, alarm in list(alarms.items()):
-                try:
-                    fire_at = datetime.fromisoformat(alarm["fire_at"])
-                except (KeyError, ValueError):
-                    to_remove.append(alarm_id)
-                    continue
+        for alarm in alarms:
+            channel = self.bot.get_channel(int(alarm["channel_id"]))
+            if channel is None:
+                continue
 
-                if now < fire_at:
-                    continue
+            embed = discord.Embed(title="⏰ Alarme!", description=alarm.get("message") or "", color=0xFF8C00)
+            embed.set_footer(text=f"Criado por {alarm.get('created_by', '?')}")
 
-                channel = self.bot.get_channel(int(alarm["channel_id"]))
-                if channel is None:
-                    to_remove.append(alarm_id)
-                    changed_guilds.add(guild_id)
-                    continue
-
-                embed = discord.Embed(title="⏰ Alarme!", description=alarm.get("mensagem", ""), color=0xFF8C00)
-                embed.set_footer(text=f"Criado por {alarm.get('created_by', '?')}")
-
-                try:
-                    await channel.send(content=alarm["mention_str"], embed=embed)
-                except (discord.Forbidden, discord.HTTPException) as e:
-                    print(f"❌ Erro ao disparar alarme {alarm_id}: {e}")
-
-                to_remove.append(alarm_id)
-                changed_guilds.add(guild_id)
-
-            for alarm_id in to_remove:
-                alarms.pop(alarm_id, None)
-
-        for guild_id in changed_guilds:
-            alarms_to_save = self.scheduled_alarms.get(guild_id, {})
-            path = scheduled_alarms_file(guild_id)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(alarms_to_save, f, indent=2, ensure_ascii=False)
+            try:
+                await channel.send(content=alarm["mention_str"], embed=embed)
+            except (discord.Forbidden, discord.HTTPException) as e:
+                print(f"❌ Erro ao disparar alarme {alarm.get('id')}: {e}")
 
     @check_scheduled_alarms.before_loop
     async def before_scheduled_alarms(self):
+        await self.bot.wait_until_ready()
+
+    # ====================== SYNC PERIÓDICO (cargos, membros vinculados, permissões) ======
+    # One loop per guild covers three things a design review found missing from the first
+    # draft of this rework: roles and linked members only got synced once (at
+    # /vincular_canal time, never again), and nothing ever checked whether the bot still
+    # has permission to post/mention in a registered channel.
+    @tasks.loop(minutes=30)
+    async def check_guild_sync(self):
+        for guild in self.bot.guilds:
+            try:
+                await sync_guild(self.bot, guild)
+            except Exception as e:
+                print(f"[check_guild_sync] Erro na guild {guild.id}: {e}")
+
+    @check_guild_sync.before_loop
+    async def before_guild_sync(self):
         await self.bot.wait_until_ready()
 
 

@@ -1,9 +1,6 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import json
-import os
-import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Union
 from zoneinfo import ZoneInfo
@@ -11,8 +8,6 @@ from i18n import t, set_guild_lang, get_boss_name
 
 import api_client
 from spawn_calc import next_spawn_time
-
-GUILDS_FILE = "data/guilds.json"
 
 EMOJIS = {
     "PICO": "🔶",
@@ -39,53 +34,21 @@ TIMEZONE_MAP = {
 }
 
 
-def load_json(file_path):
-    if not os.path.exists(file_path):
-        return {}
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def load_guilds():
-    if not os.path.exists(GUILDS_FILE):
-        return {"guilds": {}}
-    try:
-        with open(GUILDS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {"guilds": {}}
-
-
-def save_guilds(data):
-    os.makedirs(os.path.dirname(GUILDS_FILE), exist_ok=True)
-    with open(GUILDS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-
-def ensure_guild_channels(data, guild_id):
-    gid = str(guild_id)
-    if gid not in data["guilds"]:
-        data["guilds"][gid] = {"channels": {}}
-    if "channels" not in data["guilds"][gid]:
-        data["guilds"][gid]["channels"] = {}
-    return data["guilds"][gid]["channels"]
-
-
-def get_channel_config(guild_id, channel_id):
-    data = load_guilds()
-    gid = str(guild_id)
-    cid = str(channel_id)
-    cfg = data.get("guilds", {}).get(gid, {}).get("channels", {}).get(cid)
+async def get_channel_config(guild_id, channel_id) -> tuple[dict | None, str]:
+    """Replaces the old local-JSON get_channel_config() -- now a single call to the site's
+    API (GET /api/discord/bot/guild-config). Returns (channel_config_or_None, language);
+    language defaults to "pt" like every other language fallback in this bot."""
+    config = await api_client.get_guild_config(str(guild_id))
+    channels = config.get("channels") or []
+    cfg = next((c for c in channels if str(c.get("channel_id")) == str(channel_id)), None)
     if cfg is None:
-        return None, data
+        return None, config.get("language") or "pt"
+    cfg = dict(cfg)
     cfg.setdefault("timezone", "America/Sao_Paulo")
     cfg.setdefault("cleanup_enabled", False)
     cfg.setdefault("cleanup_time", None)
     cfg.setdefault("cleanup_last_ran", None)
-    return cfg, data
+    return cfg, config.get("language") or "pt"
 
 
 class Commands(commands.Cog):
@@ -99,17 +62,8 @@ class Commands(commands.Cog):
     async def setup_canal(self, interaction: discord.Interaction, canal: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
-        data = load_guilds()
-        channels = ensure_guild_channels(data, interaction.guild_id)
-        cid = str(canal.id)
-        if cid not in channels:
-            channels[cid] = {}
-        cfg = channels[cid]
-        cfg.setdefault("timezone", "America/Sao_Paulo")
-        cfg.setdefault("cleanup_enabled", False)
-        cfg.setdefault("cleanup_time", None)
-        cfg.setdefault("cleanup_last_ran", None)
-        save_guilds(data)
+        guild_name = interaction.guild.name if interaction.guild else None
+        await api_client.register_channel(str(interaction.guild_id), str(canal.id), guild_name, canal.name)
         await interaction.followup.send(t(interaction.guild_id, "canal_registered", locale=loc, channel=canal.mention), ephemeral=True)
 
     setup_canal.description_localizations = {
@@ -130,15 +84,10 @@ class Commands(commands.Cog):
     async def remove_canal(self, interaction: discord.Interaction, canal: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
-        data = load_guilds()
-        gid = str(interaction.guild_id)
-        cid = str(canal.id)
-        channels = data.get("guilds", {}).get(gid, {}).get("channels", {})
-        if cid not in channels:
+        result = await api_client.remove_channel(str(interaction.guild_id), str(canal.id))
+        if result["status"] != 200:
             await interaction.followup.send(t(interaction.guild_id, "canal_not_found", locale=loc, channel=canal.mention), ephemeral=True)
             return
-        del channels[cid]
-        save_guilds(data)
         await interaction.followup.send(t(interaction.guild_id, "canal_removed", locale=loc, channel=canal.mention), ephemeral=True)
 
     remove_canal.description_localizations = {
@@ -166,7 +115,7 @@ class Commands(commands.Cog):
     async def setup_timezone(self, interaction: discord.Interaction, timezone: str):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
-        cfg, data = get_channel_config(interaction.guild_id, interaction.channel_id)
+        cfg, _ = await get_channel_config(interaction.guild_id, interaction.channel_id)
         if cfg is None:
             await interaction.followup.send(t(interaction.guild_id, "err_channel_not_registered", locale=loc), ephemeral=True)
             return
@@ -176,8 +125,7 @@ class Commands(commands.Cog):
         except Exception:
             await interaction.followup.send(t(interaction.guild_id, "timezone_invalid", locale=loc), ephemeral=True)
             return
-        cfg["timezone"] = tz_name
-        save_guilds(data)
+        await api_client.update_channel(str(interaction.guild_id), str(interaction.channel_id), timezone=tz_name)
         await interaction.followup.send(t(interaction.guild_id, "timezone_set", locale=loc, timezone=timezone), ephemeral=True)
 
     setup_timezone.description_localizations = {
@@ -203,12 +151,7 @@ class Commands(commands.Cog):
     async def setup_language(self, interaction: discord.Interaction, language: str):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
-        data = load_guilds()
-        gid = str(interaction.guild_id)
-        if gid not in data["guilds"]:
-            data["guilds"][gid] = {"channels": {}}
-        data["guilds"][gid]["language"] = language
-        save_guilds(data)
+        await api_client.set_guild_language(str(interaction.guild_id), language)
         set_guild_lang(interaction.guild_id, language)
         await interaction.followup.send(t(interaction.guild_id, "language_set", locale=loc, language=language), ephemeral=True)
 
@@ -229,13 +172,12 @@ class Commands(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
         gid = str(interaction.guild_id)
-        cfg, data = get_channel_config(interaction.guild_id, interaction.channel_id)
+        cfg, language = await get_channel_config(interaction.guild_id, interaction.channel_id)
         if cfg is None:
             await interaction.followup.send(t(interaction.guild_id, "err_channel_not_registered", locale=loc), ephemeral=True)
             return
 
         tz = cfg.get("timezone", "America/Sao_Paulo")
-        language = data.get("guilds", {}).get(gid, {}).get("language", "pt")
 
         if cfg.get("cleanup_enabled") and cfg.get("cleanup_time"):
             cleanup_text = t(gid, "config_cleanup_enabled", locale=loc, time=cfg["cleanup_time"], tz=tz)
@@ -266,7 +208,7 @@ class Commands(commands.Cog):
     async def proximo(self, interaction: discord.Interaction):
         await interaction.response.defer()
         loc = interaction.locale
-        cfg, _ = get_channel_config(interaction.guild_id, interaction.channel_id)
+        cfg, _ = await get_channel_config(interaction.guild_id, interaction.channel_id)
         if cfg is None:
             await interaction.followup.send(t(interaction.guild_id, "err_channel_not_registered", locale=loc), ephemeral=True)
             return
@@ -395,15 +337,16 @@ class Commands(commands.Cog):
         if not (0 <= hora <= 23 and 0 <= minuto <= 59):
             await interaction.followup.send(t(interaction.guild_id, "cleanup_invalid", locale=loc), ephemeral=True)
             return
-        cfg, data = get_channel_config(interaction.guild_id, interaction.channel_id)
+        cfg, _ = await get_channel_config(interaction.guild_id, interaction.channel_id)
         if cfg is None:
             await interaction.followup.send(t(interaction.guild_id, "cleanup_channel_not_registered", locale=loc), ephemeral=True)
             return
-        cfg["cleanup_enabled"] = True
-        cfg["cleanup_time"] = f"{hora:02d}:{minuto:02d}"
-        save_guilds(data)
+        cleanup_time = f"{hora:02d}:{minuto:02d}"
+        await api_client.update_channel(
+            str(interaction.guild_id), str(interaction.channel_id), cleanup_enabled=True, cleanup_time=cleanup_time
+        )
         tz_name = cfg.get("timezone", "America/Sao_Paulo")
-        await interaction.followup.send(t(interaction.guild_id, "cleanup_enabled", locale=loc, time=f"{hora:02d}:{minuto:02d}", tz=tz_name), ephemeral=True)
+        await interaction.followup.send(t(interaction.guild_id, "cleanup_enabled", locale=loc, time=cleanup_time, tz=tz_name), ephemeral=True)
 
     setup_limpeza.description_localizations = {
         "en-US": "Enable daily automatic cleanup for this channel at the defined time",
@@ -423,12 +366,11 @@ class Commands(commands.Cog):
     async def desativar_limpeza(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
-        cfg, data = get_channel_config(interaction.guild_id, interaction.channel_id)
+        cfg, _ = await get_channel_config(interaction.guild_id, interaction.channel_id)
         if cfg is None:
             await interaction.followup.send(t(interaction.guild_id, "cleanup_channel_not_registered_short", locale=loc), ephemeral=True)
             return
-        cfg["cleanup_enabled"] = False
-        save_guilds(data)
+        await api_client.update_channel(str(interaction.guild_id), str(interaction.channel_id), cleanup_enabled=False)
         await interaction.followup.send(t(interaction.guild_id, "cleanup_disabled", locale=loc), ephemeral=True)
 
     desativar_limpeza.description_localizations = {
@@ -447,7 +389,7 @@ class Commands(commands.Cog):
     async def spawn(self, interaction: discord.Interaction, boss_id: str):
         await interaction.response.defer()
         loc = interaction.locale
-        cfg, _ = get_channel_config(interaction.guild_id, interaction.channel_id)
+        cfg, _ = await get_channel_config(interaction.guild_id, interaction.channel_id)
         if cfg is None:
             await interaction.followup.send(t(interaction.guild_id, "err_channel_not_registered", locale=loc), ephemeral=True)
             return
@@ -514,28 +456,16 @@ class Commands(commands.Cog):
             return
 
         mention_str = alvo.mention
+        target_type = "role" if isinstance(alvo, discord.Role) else "user"
         fire_at = datetime.now(timezone.utc) + timedelta(minutes=minutos)
-        alarm_id = f"alarm_{uuid.uuid4().hex[:8]}"
 
-        alarm = {
-            "id": alarm_id,
-            "guild_id": gid,
-            "channel_id": str(interaction.channel_id),
-            "mention_str": mention_str,
-            "fire_at": fire_at.isoformat(),
-            "mensagem": mensagem,
-            "created_by": str(interaction.user)
-        }
-
-        alarms_data = load_json(f"data/scheduled_alarms/{gid}.json")
-        alarms_data[alarm_id] = alarm
-        os.makedirs("data/scheduled_alarms", exist_ok=True)
-        with open(f"data/scheduled_alarms/{gid}.json", "w", encoding="utf-8") as f:
-            json.dump(alarms_data, f, indent=2, ensure_ascii=False)
-
-        alerts_cog = self.bot.cogs.get("Alerts")
-        if alerts_cog is not None:
-            alerts_cog.scheduled_alarms.setdefault(gid, {})[alarm_id] = alarm
+        result = await api_client.create_alarm(
+            gid, str(interaction.channel_id), target_type, str(alvo.id), mention_str, fire_at.isoformat(), str(interaction.user), mensagem or None
+        )
+        if result["status"] != 200:
+            await interaction.followup.send("❌ Não foi possível criar o alarme.", ephemeral=True)
+            return
+        alarm = result["body"]["alarm"]
 
         unit = t(gid, "alarm_minute", locale=loc) if minutos == 1 else t(gid, "alarm_minutes", locale=loc)
         embed = discord.Embed(
@@ -545,7 +475,7 @@ class Commands(commands.Cog):
         )
         embed.add_field(name=t(gid, "alarm_field_target", locale=loc), value=mention_str, inline=True)
         embed.add_field(name=t(gid, "alarm_field_fire", locale=loc), value=fire_at.strftime("%H:%M UTC"), inline=True)
-        embed.add_field(name=t(gid, "alarm_field_id", locale=loc), value=f"`{alarm_id}`", inline=False)
+        embed.add_field(name=t(gid, "alarm_field_id", locale=loc), value=f"`{alarm['id']}`", inline=False)
         if mensagem:
             embed.add_field(name=t(gid, "alarm_field_message", locale=loc), value=mensagem, inline=False)
         embed.set_footer(text=t(gid, "alarm_footer", locale=loc, user=interaction.user))
@@ -573,8 +503,7 @@ class Commands(commands.Cog):
         channel_id = str(interaction.channel_id)
         now = datetime.now(timezone.utc)
 
-        alarms_raw = load_json(f"data/scheduled_alarms/{gid}.json")
-        channel_alarms = [a for a in alarms_raw.values() if a.get("channel_id") == channel_id]
+        channel_alarms = await api_client.get_alarms(gid, channel_id)
 
         if not channel_alarms:
             await interaction.followup.send(t(gid, "alarms_none", locale=loc), ephemeral=True)
@@ -606,8 +535,8 @@ class Commands(commands.Cog):
                 f"{t(gid, 'alarms_field_target', locale=loc)} {alarm.get('mention_str', '?')}\n"
                 f"{t(gid, 'alarms_field_created_by', locale=loc)} {alarm.get('created_by', '?')}"
             )
-            if alarm.get("mensagem"):
-                field_value += f"\n{t(gid, 'alarms_field_message', locale=loc)} {alarm['mensagem']}"
+            if alarm.get("message"):
+                field_value += f"\n{t(gid, 'alarms_field_message', locale=loc)} {alarm['message']}"
             embed.add_field(name=field_name, value=field_value, inline=False)
 
         embed.set_footer(text=t(gid, "alarms_footer", locale=loc))
@@ -633,22 +562,13 @@ class Commands(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         loc = interaction.locale
         gid = str(interaction.guild_id)
-        file_path = f"data/scheduled_alarms/{gid}.json"
-        alarms = load_json(file_path)
 
-        if alarm_id not in alarms:
+        result = await api_client.cancel_alarm(alarm_id)
+        if result["status"] != 200:
             await interaction.followup.send(t(gid, "alarm_not_found", locale=loc, id=alarm_id), ephemeral=True)
             return
 
-        alarm = alarms.pop(alarm_id)
-        os.makedirs("data/scheduled_alarms", exist_ok=True)
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(alarms, f, indent=2, ensure_ascii=False)
-
-        alerts_cog = self.bot.cogs.get("Alerts")
-        if alerts_cog is not None:
-            alerts_cog.scheduled_alarms.get(gid, {}).pop(alarm_id, None)
-
+        alarm = result["body"]["alarm"]
         await interaction.followup.send(
             t(gid, "alarm_cancelled", locale=loc, id=alarm_id, target=alarm.get("mention_str", "?"), created_by=alarm.get("created_by", "?")),
             ephemeral=True

@@ -17,8 +17,10 @@ from discord import app_commands
 from discord.ext import commands
 
 import api_client
+from guild_sync import sync_guild
 
 SITE_SETTINGS_URL = "https://mir4.opendataplay.com/settings"
+SITE_BOSS_ALERT_URL = "https://mir4.opendataplay.com/boss-alert"
 BOSS_TYPES = ("MB", "PICO", "PRACA", "WB", "EVENTO")
 
 # Simple in-process rate limit as a second layer on top of the site's own per-discord_id
@@ -192,6 +194,53 @@ class Account(commands.Cog):
                 f"❌ Código inválido ou expirado. Gere um novo em {SITE_SETTINGS_URL}.",
                 ephemeral=True,
             )
+
+    @app_commands.command(name="vincular_canal", description="Vincula este canal à sua conta do site pra configurar alertas automáticos de boss")
+    @app_commands.describe(codigo=f"Código gerado em {SITE_BOSS_ALERT_URL}")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
+    async def vincular_canal(self, interaction: discord.Interaction, codigo: str):
+        await interaction.response.defer(ephemeral=True)
+
+        # Restrito a canal de texto comum -- thread, post de fórum e chat de voz ficam de
+        # fora (a segunda passada de check_bosses em cogs/alerts.py manda mensagem com
+        # channel.send(), que não deveria mirar nesses casos).
+        if not isinstance(interaction.channel, discord.TextChannel):
+            await interaction.followup.send(
+                "❌ Esse comando só funciona num canal de texto comum do servidor (não em threads, posts de fórum ou chat de voz).",
+                ephemeral=True,
+            )
+            return
+
+        discord_id = str(interaction.user.id)
+        if _rate_limited(f"canal:{discord_id}"):
+            await interaction.followup.send("Muitas tentativas. Espere um pouco e tente de novo.", ephemeral=True)
+            return
+
+        code = codigo.strip().upper().replace(" ", "")
+        guild_name = interaction.guild.name if interaction.guild else None
+        result = await api_client.claim_channel_code(code, str(interaction.guild_id), str(interaction.channel_id), guild_name, interaction.channel.name)
+        error = result["body"].get("error") if isinstance(result["body"], dict) else None
+
+        if result["status"] != 200:
+            if error == "rate_limited":
+                await interaction.followup.send("Muitas tentativas. Espere um pouco e tente de novo.", ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ Código inválido ou expirado. Gere um novo em {SITE_BOSS_ALERT_URL}.", ephemeral=True)
+            return
+
+        await interaction.followup.send(
+            f"✅ Canal vinculado! Configure os alertas automáticos de boss em {SITE_BOSS_ALERT_URL}.",
+            ephemeral=True,
+        )
+
+        # Carona na mesma viagem: já popula cargos/membros vinculados pro seletor de menção
+        # do site, sem esperar o próximo ciclo da rotina de 30 min (guild_sync.py).
+        if interaction.guild is not None:
+            try:
+                await sync_guild(self.bot, interaction.guild)
+            except Exception as e:
+                print(f"[vincular_canal] Falha ao sincronizar guild {interaction.guild_id}: {e}")
 
     @app_commands.command(name="desvincular", description="Desvincula sua conta do Discord da conta do site")
     async def desvincular(self, interaction: discord.Interaction):

@@ -1,11 +1,19 @@
+"""get_guild_lang() is called synchronously dozens of times per command, inside t() --
+making it hit the network on every call would force t() to become async too, a large
+ripple across every command in commands.py/account.py. Instead the in-memory cache is
+kept exactly as it was (still synchronous), just populated differently: a bulk fetch at
+bot startup (prewarm_guild_languages(), called once from bot.py's on_ready) instead of a
+lazy per-guild read of data/guilds.json."""
 import json
 import os
 
-GUILDS_FILE = "data/guilds.json"
+import api_client
+
 SUPPORTED_LANGS = {"pt", "en", "es"}
 
 _translations: dict = {}
 _guild_lang_cache: dict = {}
+_prewarmed = False
 
 
 def _load_lang(lang: str) -> dict:
@@ -32,24 +40,32 @@ def _locale_to_lang(locale) -> str:
 
 
 def get_guild_lang(guild_id) -> str | None:
-    """Returns the explicitly configured guild language, or None if not set."""
-    gid = str(guild_id)
-    if gid in _guild_lang_cache:
-        return _guild_lang_cache[gid]
-    try:
-        with open(GUILDS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        lang = data.get("guilds", {}).get(gid, {}).get("language")
-    except Exception:
-        lang = None
-    if lang not in SUPPORTED_LANGS:
-        lang = None
-    _guild_lang_cache[gid] = lang
-    return lang
+    """Returns the explicitly configured guild language, or None if not set. Purely a
+    cache read now -- never touches the network or disk. A guild not seen by
+    prewarm_guild_languages() (created after the last bot startup) simply reads as
+    unset until /setup_language calls set_guild_lang() for it, or the bot restarts."""
+    return _guild_lang_cache.get(str(guild_id))
 
 
 def set_guild_lang(guild_id, lang: str):
     _guild_lang_cache[str(guild_id)] = lang
+
+
+async def prewarm_guild_languages():
+    """Populates the whole cache in one call -- run once from bot.py's on_ready, before
+    any command can run. Safe to call again later (e.g. a manual admin refresh); it only
+    ever adds/overwrites entries, never clears ones set by set_guild_lang() in between."""
+    global _prewarmed
+    try:
+        languages = await api_client.get_all_guild_languages()
+    except Exception as e:
+        print(f"[i18n] Falha ao pré-aquecer idiomas das guilds: {e}")
+        return
+    for gid, lang in languages.items():
+        if lang in SUPPORTED_LANGS:
+            _guild_lang_cache[gid] = lang
+    _prewarmed = True
+    print(f"[i18n] {len(languages)} idiomas de guild pré-carregados.")
 
 
 def _resolve_lang(guild_id, locale=None) -> str:

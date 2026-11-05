@@ -12,10 +12,24 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+import api_client
+import i18n
+
 intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+@bot.event
+async def on_guild_remove(guild: discord.Guild):
+    # Marks every channel of that guild inactive in one shot (discord_guild_channels.active)
+    # instead of letting the 1-min second pass in cogs/alerts.py discover it one failed
+    # channel.send() at a time.
+    try:
+        await api_client.report_guild_removed(str(guild.id))
+    except Exception as e:
+        print(f"[on_guild_remove] Falha ao reportar remoção da guild {guild.id}: {e}")
 
 
 @bot.tree.error
@@ -49,6 +63,11 @@ async def on_ready():
 
     # Mostrar diretório atual (debug)
     print(f"📁 Diretório atual: {os.getcwd()}")
+
+    # get_guild_lang() é síncrono e chamado dezenas de vezes por comando (dentro de t()) --
+    # pré-aquece o cache inteiro agora, antes de qualquer comando poder rodar, em vez de
+    # cada get_guild_lang() precisar virar uma chamada de rede.
+    await i18n.prewarm_guild_languages()
 
     # Carregar cogs com mensagens de erro detalhadas
     print("🔄 Carregando cogs...")
