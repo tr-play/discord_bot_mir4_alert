@@ -109,10 +109,11 @@ class Alerts(commands.Cog):
         self.check_guild_sync.cancel()
 
     # ====================== ALERTAS PESSOAIS POR DM + ALERTAS DE CANAL ======================
-    # Mirrors src/app/api/cron/send-push/route.ts's filtering (personal lead time, personal
-    # enabled types, personal completion state, dedupe log) but delivers by Discord DM
-    # instead of Web Push, and reaches boss/user data through api_client.py instead of a
-    # database -- the bot has no direct Postgres access at all.
+    # Personal DMs: the SITE decides what is due (xdoapp lib/notifyPrefs.ts -- several lead
+    # times, per-boss switches, quiet hours, completion, the user's Discord switch) and claims
+    # it in its own dedupe log; the bot only sends. One rule for push, Discord and the open
+    # page. If the site endpoint isn't available (site not deployed yet / error), falls back
+    # to the old filtering below so DMs never stop.
     @tasks.loop(minutes=1)
     async def check_bosses(self):
         schedule = await api_client.get_boss_schedule()
@@ -121,17 +122,31 @@ class Alerts(commands.Cog):
         now = datetime.now(timezone.utc)
         upcoming = upcoming_all(schedule, now)
 
-        try:
-            subscribers = await api_client.get_subscribers()
-        except Exception as e:
-            print(f"[check_bosses] Falha ao buscar assinantes: {e}")
-            subscribers = []
-
-        for sub in subscribers:
+        due = await api_client.claim_boss_alerts()
+        if due is not None:
+            for entry in due:
+                try:
+                    to_notify = [
+                        (a["boss"], datetime.fromisoformat(a["spawn_time"].replace("Z", "+00:00")), a["minutes_left"])
+                        for a in entry.get("alerts", [])
+                    ]
+                    if to_notify:
+                        await self._send_dm(entry, to_notify)
+                        await asyncio.sleep(1)
+                except Exception as e:
+                    print(f"[check_bosses] Erro enviando avisos de {entry.get('discord_id')}: {e}")
+        else:
             try:
-                await self._process_subscriber(sub, upcoming, now)
+                subscribers = await api_client.get_subscribers()
             except Exception as e:
-                print(f"[check_bosses] Erro processando {sub.get('discord_id')}: {e}")
+                print(f"[check_bosses] Falha ao buscar assinantes: {e}")
+                subscribers = []
+
+            for sub in subscribers:
+                try:
+                    await self._process_subscriber(sub, upcoming, now)
+                except Exception as e:
+                    print(f"[check_bosses] Erro processando {sub.get('discord_id')}: {e}")
 
         try:
             await self._process_channel_alerts(upcoming, now)

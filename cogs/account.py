@@ -345,7 +345,9 @@ class Account(commands.Cog):
         types_on = [t for t in BOSS_TYPES if me["notify_types_enabled"].get(t, False)]
         embed = discord.Embed(title="📋 Minha semana", color=0x7F77DD)
         embed.add_field(name="Vinculado como", value=f"@{me['discord_username'] or '?'}", inline=False)
-        embed.add_field(name="Antecedência de aviso", value=f"{me['notify_lead_minutes']} min", inline=True)
+        # several lead times since the site's Phase 3 (notify_lead_list); older site = one value
+        leads = me.get("notify_lead_list") or [me["notify_lead_minutes"]]
+        embed.add_field(name="Antecedência de aviso", value=" · ".join(f"{m}" for m in leads) + " min", inline=True)
         embed.add_field(name="Tipos ativos", value=", ".join(types_on) or "nenhum", inline=True)
         completed = me.get("completed_boss_ids", [])
         embed.add_field(

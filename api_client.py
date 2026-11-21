@@ -102,6 +102,18 @@ async def get_subscribers() -> list[dict]:
     return result["body"] if result["status"] == 200 and isinstance(result["body"], list) else []
 
 
+async def claim_boss_alerts() -> list[dict] | None:
+    """Boss-alert DMs due right now, decided and claimed by the site (lead times, per-boss
+    switches, quiet hours, completion, Discord channel on) -- the bot just sends them.
+    [{discord_id, timezone, alerts: [{boss, spawn_time, minutes_left, lead}]}].
+    None when the endpoint isn't there (site not deployed yet) or failed, so the caller can
+    fall back to the old per-subscriber filtering."""
+    result = await _call("POST", "/api/discord/bot/boss-alerts/claim", headers=_bot_headers())
+    if result["status"] == 200 and isinstance(result["body"], list):
+        return result["body"]
+    return None
+
+
 async def claim_notification(discord_id: str, boss_id: str, spawn_time_iso: str) -> bool:
     result = await _call(
         "POST",
