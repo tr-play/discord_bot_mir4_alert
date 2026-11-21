@@ -66,5 +66,9 @@
   "language_set": "✅ Language set: **{language}**",
 
   "alarm_dispatch_title": "🚨 Alarm",
-  "alarm_dispatch_footer": "Alarm created by {user}"
+  "alarm_dispatch_footer": "Alarm created by {user}",
+  "dm_spawn_field": "Spawn",
+  "dm_spawn_in": "in {min} min ({time} {tz})",
+  "dm_multi_title": "{n} bosses spawning soon!",
+  "dm_multi_line": "in {min} min ({time} {tz})"
 }

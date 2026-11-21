@@ -88,6 +88,14 @@ def t(guild_id, key: str, locale=None, **kwargs) -> str:
     return text.format(**kwargs) if kwargs else text
 
 
+def t_lang(lang: str, key: str, **kwargs) -> str:
+    """Text in an explicit language (personal DMs use the site account's language, not a
+    guild setting). Falls back to PT, then to the key."""
+    lang = lang if lang in SUPPORTED_LANGS else "pt"
+    text = _load_lang(lang).get(key) or _load_lang("pt").get(key) or key
+    return text.format(**kwargs) if kwargs else text
+
+
 def get_boss_name(boss: dict, guild_id, locale=None) -> str:
     lang = _resolve_lang(guild_id, locale)
     if lang != "pt":

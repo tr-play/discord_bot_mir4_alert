@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 import api_client
 from spawn_calc import upcoming_all
 from cogs.account import BossAlertView
-from i18n import get_boss_name
+from i18n import get_boss_name, t_lang
 from guild_sync import sync_guild
 
 PENDING_DM_DELETES_FILE = "data/pending_dm_deletes.json"
@@ -206,28 +206,35 @@ class Alerts(commands.Cog):
         mb_bosses = [(boss["id"], boss["name"]) for boss, _, _ in to_notify if boss["type"] == "MB"]
         view = BossAlertView(types_present, mb_bosses)
 
+        # Language of the site account (users.lang) when the site sends it; PT otherwise
+        lang = sub.get("lang") or "pt"
+
+        def boss_name(b):
+            return (b.get("name_en") or b["name"]) if lang != "pt" else b["name"]
+
         if len(to_notify) == 1:
             boss, spawn_time, minutes_left = to_notify[0]
             loc = " | ".join(filter(None, [boss.get("layer"), boss.get("word"), boss.get("map")]))
             embed = discord.Embed(
-                title=f"{EMOJIS.get(boss['type'], '🔴')} [{boss['type']}] {boss['name']}",
+                title=f"{EMOJIS.get(boss['type'], '🔴')} [{boss['type']}] {boss_name(boss)}",
                 color=COLORS.get(boss["type"], 0xFF0000),
                 description=f"🗺️ {loc}" if loc else None,
             )
             embed.add_field(
-                name="Spawn",
-                value=f"em {int(minutes_left)} min ({spawn_time.astimezone(tz).strftime('%H:%M')} {tz_name})",
+                name=t_lang(lang, "dm_spawn_field"),
+                value=t_lang(lang, "dm_spawn_in", min=int(minutes_left),
+                             time=spawn_time.astimezone(tz).strftime('%H:%M'), tz=tz_name),
                 inline=True,
             )
             embed.set_footer(text=f"Boss ID: {boss['id']}")
         else:
             lines = [
-                f"{EMOJIS.get(b['type'], '🔴')} [{b['type']}] {b['name']} — em {int(m)} min "
-                f"({s.astimezone(tz).strftime('%H:%M')} {tz_name})"
+                f"{EMOJIS.get(b['type'], '🔴')} [{b['type']}] {boss_name(b)} — "
+                + t_lang(lang, "dm_multi_line", min=int(m), time=s.astimezone(tz).strftime('%H:%M'), tz=tz_name)
                 for b, s, m in to_notify
             ]
             embed = discord.Embed(
-                title=f"{len(to_notify)} bosses vão spawnar em breve!",
+                title=t_lang(lang, "dm_multi_title", n=len(to_notify)),
                 color=0x7F77DD,
                 description="\n".join(lines),
             )
