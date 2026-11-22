@@ -96,8 +96,20 @@ def t_lang(lang: str, key: str, **kwargs) -> str:
     return text.format(**kwargs) if kwargs else text
 
 
+def localized(boss: dict, field: str, lang: str) -> str:
+    """Boss text in a language: `name` = PT, `name_en`, `name_es` (game's Spanish, site migration
+    059). Missing Spanish falls back to English, then PT -- same rule as the site (pickLang)."""
+    order = {"pt": ("", "_en"), "es": ("_es", "_en", ""), "en": ("_en", "")}.get(lang, ("", "_en"))
+    for suffix in order:
+        v = boss.get(field + suffix)
+        if v:
+            return v
+    return ""
+
+
+def localized_location(boss: dict, lang: str, sep: str = " | ") -> str:
+    return sep.join(filter(None, [localized(boss, "layer", lang), boss.get("word"), localized(boss, "map", lang)]))
+
+
 def get_boss_name(boss: dict, guild_id, locale=None) -> str:
-    lang = _resolve_lang(guild_id, locale)
-    if lang != "pt":
-        return boss.get("name_en") or boss.get("name", "")
-    return boss.get("name", "")
+    return localized(boss, "name", _resolve_lang(guild_id, locale))

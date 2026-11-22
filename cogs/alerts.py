@@ -10,7 +10,7 @@ from discord.ext import commands, tasks
 import api_client
 from spawn_calc import upcoming_all
 from cogs.account import BossAlertView
-from i18n import get_boss_name, t_lang
+from i18n import get_boss_name, localized, localized_location, t_lang
 from guild_sync import sync_guild
 
 PENDING_DM_DELETES_FILE = "data/pending_dm_deletes.json"
@@ -210,11 +210,11 @@ class Alerts(commands.Cog):
         lang = sub.get("lang") or "pt"
 
         def boss_name(b):
-            return (b.get("name_en") or b["name"]) if lang != "pt" else b["name"]
+            return localized(b, "name", lang)
 
         if len(to_notify) == 1:
             boss, spawn_time, minutes_left = to_notify[0]
-            loc = " | ".join(filter(None, [boss.get("layer"), boss.get("word"), boss.get("map")]))
+            loc = localized_location(boss, lang)
             embed = discord.Embed(
                 title=f"{EMOJIS.get(boss['type'], '🔴')} [{boss['type']}] {boss_name(boss)}",
                 color=COLORS.get(boss["type"], 0xFF0000),
